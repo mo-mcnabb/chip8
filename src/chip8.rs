@@ -8,6 +8,8 @@ pub struct Chip8 {
     stack: Vec<u16>,
     instruction_pointer: u16,
     program_counter: u16,
+    delay_timer: u8,
+    sound_timer: u8,
 }
 
 impl Chip8 {
@@ -18,6 +20,8 @@ impl Chip8 {
             stack: Vec::new(),
             instruction_pointer: 0,
             program_counter: 0,
+            delay_timer: 0,
+            sound_timer: 0,
         };
 
         chip8.load_sprites_into_memory();
@@ -193,10 +197,14 @@ impl Chip8 {
                 todo!("9XY0: skips the next instruction if Vx != Vy");
             }
             0xA => {
-                todo!("ANNN: Sets the I(instruction) address to NNN");
+                //todo!("ANNN: Sets the I(instruction) address to NNN");
+                let value = instruction & 0x0FFF;
+                self.instruction_pointer = value;
             }
             0xB => {
-                todo!("BNNN: jumps to the address NNN plus V0. PC(program counter) = V0 + NNN");
+                //todo!("BNNN: jumps to the address NNN plus V0. PC(program counter) = V0 + NNN");
+                let value = instruction & 0x0FFF;
+                self.program_counter = self.registers[0x00] as u16 + value;
             }
             0xC => {
                 todo!("CXNN: sets Vx to the result of a bitwise and operation on a random number (typically 0 to 255) and NN. Vx = rand() & NN");
@@ -221,28 +229,63 @@ impl Chip8 {
             },
             0xF => match instruction & 0x00FF {
                 0x0007 => {
-                    todo!("FX07: sets vx to the value of the delay timer. Vx = get_delay()");
+                    //todo!("FX07: sets vx to the value of the delay timer. Vx = get_delay()");
+                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
+                    self.registers[register_x_index] = self.delay_timer;
                 }
                 0x000A => {
                     todo!("FX0A: A key press is awaited, and then stored in Vx (blocking operation, all instruction halted until next key event. probably a loop?)");
                 }
                 0x0015 => {
-                    todo!("FX15: sets the delay timer to Vx. delay_timer(Vx)");
+                    //todo!("FX15: sets the delay timer to Vx. delay_timer(Vx)");
+                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
+                    self.delay_timer = self.registers[register_x_index];
                 }
                 0x001E => {
-                    todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
+                    //todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
+                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
+                    self.instruction_pointer =
+                        self.instruction_pointer + self.registers[register_x_index] as u16
                 }
                 0x0029 => {
                     todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
+                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
                 }
                 0x0033 => {
-                    todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
+                    //todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
+                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
+                    let register_x_val = self.registers[register_x_index];
+                    let hundreds = (register_x_val / 100) % 10;
+                    let tens = (register_x_val / 10) % 10;
+                    let ones = register_x_val % 10;
+                    let instruction_pointer = self.instruction_pointer as usize;
+
+                    self.memory[instruction_pointer] = hundreds;
+                    self.memory[instruction_pointer + 1] = tens;
+                    self.memory[instruction_pointer + 2] = ones;
                 }
                 0x0055 => {
-                    todo!("FX55: stores from V0 to Vx (including Vx) in memory, starting at address I. the offset from I is increased by 1 for each value written, but I itself is left unmodified. reg_dum(Vx, &I)");
+                    //todo!("FX55: stores from V0 to Vx (including Vx) in memory, starting at address I. the offset from I is increased by 1 for each value written, but I itself is left unmodified. reg_dum(Vx, &I)");
+                    //+1 bc zero index
+                    let max_register = (((instruction & 0x0F00) >> 8) + 1) as usize;
+                    let instruction_pointer = self.instruction_pointer as usize;
+                    self.registers
+                        .iter()
+                        .take(max_register)
+                        .enumerate()
+                        .for_each(|(index, register)| {
+                            self.memory[instruction_pointer + index] = *register;
+                        });
                 }
                 0x0065 => {
-                    todo!("FX65: Fills from V0 to Vx (including Vx) with values from memory, starting at address I. the offset from I is increased by 1 for each value read, but I remains umodified.")
+                    //todo!("FX65: Fills from V0 to Vx (including Vx) with values from memory, starting at address I. the offset from I is increased by 1 for each value read, but I remains umodified.");
+                    let max_register = (((instruction & 0x0F00) >> 8) + 1) as usize;
+                    let ip = self.instruction_pointer as usize;
+                    let mem_slice = &self.memory[ip..ip + max_register];
+
+                    mem_slice.iter().enumerate().for_each(|(index, mem_val)| {
+                        self.registers[index] = *mem_val;
+                    });
                 }
                 _ => {}
             },
@@ -265,6 +308,8 @@ mod tests {
         assert_eq!(empty_vec, chip8.stack);
         assert_eq!(0, chip8.instruction_pointer);
         assert_eq!(0, chip8.program_counter);
+        assert_eq!(0, chip8.delay_timer);
+        assert_eq!(0, chip8.sound_timer);
     }
 
     #[test]
@@ -445,5 +490,123 @@ mod tests {
         chip8.handle_instruction(instruction);
         assert_eq!(170, chip8.registers[0x05]);
         assert_eq!(0, chip8.registers[0x0F]);
+    }
+
+    #[test]
+    fn opcode_annn_test() {
+        let instruction = 0xA232;
+        let mut chip8 = Chip8::new();
+
+        chip8.handle_instruction(instruction);
+        assert_eq!(0x232, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_bnnn_test() {
+        let instruction = 0xBA09;
+        let mut chip8 = Chip8::new();
+
+        chip8.registers[0x00] = 0x45;
+        chip8.handle_instruction(instruction);
+        assert_eq!(0xA4E, chip8.program_counter);
+    }
+
+    #[test]
+    fn opcode_fx07_test() {
+        let instruction = 0xF407;
+        let mut chip8 = Chip8::new();
+
+        chip8.delay_timer = 0x70;
+        chip8.handle_instruction(instruction);
+        assert_eq!(0x70, chip8.registers[0x04]);
+    }
+
+    #[test]
+    fn opcode_fx15_test() {
+        let instruction = 0x0F915;
+        let mut chip8 = Chip8::new();
+
+        chip8.registers[0x09] = 0x78;
+        chip8.handle_instruction(instruction);
+        assert_eq!(0x78, chip8.delay_timer);
+    }
+    #[test]
+    fn opcode_fx1e_test() {
+        let instruction = 0xFA1E;
+        let mut chip8 = Chip8::new();
+
+        chip8.instruction_pointer = 0x30;
+        chip8.registers[0x0A] = 0x50;
+
+        chip8.handle_instruction(instruction);
+        assert_eq!(0x80, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_fx33_test() {
+        let instruction = 0xFC33;
+        let mut chip8 = Chip8::new();
+        chip8.instruction_pointer = 0x0350;
+        chip8.registers[0x0C] = 129;
+
+        let instruction_pointer_val = chip8.instruction_pointer as usize;
+        chip8.handle_instruction(instruction);
+        assert_eq!(1, chip8.memory[instruction_pointer_val]);
+        assert_eq!(2, chip8.memory[instruction_pointer_val + 1]);
+        assert_eq!(9, chip8.memory[instruction_pointer_val + 2]);
+
+        chip8.instruction_pointer = 0x0450;
+        chip8.registers[0x0C] = 65;
+
+        let instruction_pointer_val = chip8.instruction_pointer as usize;
+        chip8.handle_instruction(instruction);
+        assert_eq!(0, chip8.memory[instruction_pointer_val]);
+        assert_eq!(6, chip8.memory[instruction_pointer_val + 1]);
+        assert_eq!(5, chip8.memory[instruction_pointer_val + 2]);
+    }
+
+    #[test]
+    fn opcode_fx55_test() {
+        let instruction = 0xF455;
+        let mut chip8 = Chip8::new();
+
+        chip8.registers[0x00] = 31;
+        chip8.registers[0x01] = 243;
+        chip8.registers[0x02] = 56;
+        chip8.registers[0x03] = 0;
+        chip8.registers[0x04] = 167;
+
+        chip8.instruction_pointer = 0x923;
+        chip8.handle_instruction(instruction);
+        let ip = chip8.instruction_pointer as usize;
+
+        assert_eq!(31, chip8.memory[ip]);
+        assert_eq!(243, chip8.memory[ip + 1]);
+        assert_eq!(56, chip8.memory[ip + 2]);
+        assert_eq!(0, chip8.memory[ip + 3]);
+        assert_eq!(167, chip8.memory[ip + 4]);
+        assert_eq!(0, chip8.memory[ip + 5]);
+    }
+
+    #[test]
+    fn opcode_fx65_test() {
+        let instruction = 0xF565;
+        let mut chip8 = Chip8::new();
+        chip8.instruction_pointer = 0x543;
+        let ip = chip8.instruction_pointer as usize;
+
+        chip8.memory[ip] = 0x1E;
+        chip8.memory[ip + 1] = 0x45;
+        chip8.memory[ip + 2] = 0xAA;
+        chip8.memory[ip + 3] = 0x7E;
+        chip8.memory[ip + 4] = 0xEF;
+
+        chip8.handle_instruction(instruction);
+        assert_eq!(0x1E, chip8.registers[0x00]);
+        assert_eq!(0x45, chip8.registers[0x01]);
+        assert_eq!(0xAA, chip8.registers[0x02]);
+        assert_eq!(0x7E, chip8.registers[0x03]);
+        assert_eq!(0xEF, chip8.registers[0x04]);
+        assert_eq!(0x00, chip8.registers[0x05]);
     }
 }
