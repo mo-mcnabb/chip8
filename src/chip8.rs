@@ -104,6 +104,11 @@ impl Chip8 {
     }
 
     pub fn handle_instruction(&mut self, instruction: u16) {
+        let x_index = ((instruction & 0x0F00) >> 8) as usize;
+        let y_index = ((instruction & 0x00F0) >> 4) as usize;
+        let nnn = instruction & 0x0FFF; // for instructions like ANNN, BNNN, etc.
+        let nn = (instruction & 0x00FF) as u8; // for instruction like 6XNN, 7XNN, etc.
+        let n = (instruction & 0x000F) as u8; // for instructions like DXYN
         match instruction >> 12 {
             0x00E0 => {
                 todo!("clear diplay");
@@ -128,115 +133,83 @@ impl Chip8 {
             }
             0x6 => {
                 //todo!("6XNN: sets Vx to NN");
-                let register_index = ((instruction & 0x0F00) >> 8) as usize;
-                self.registers[register_index] = (instruction & 0x00FF) as u8;
+                self.registers[x_index] = nn;
             }
             0x7 => {
                 //todo!("7XNN: adds NN to Vx (carry flag not changed)");
-                let register_index = ((instruction & 0x0F00) >> 8) as usize;
-                self.registers[register_index] =
-                    self.registers[register_index] + ((instruction & 0x00FF) as u8);
+                self.registers[x_index] = self.registers[x_index] + nn;
             }
             0x8 => match instruction & 0x000F {
                 0x0 => {
                     //todo!("8XY0: sets Vx to Vy");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-                    self.registers[register_x_index] = self.registers[register_y_index];
+                    self.registers[x_index] = self.registers[y_index];
                 }
                 0x1 => {
                     //todo!("8XY1: sets Vx to Vx | Vy. Vx = Vx | Vy");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-                    self.registers[register_x_index] =
-                        self.registers[register_x_index] | self.registers[register_y_index];
+                    self.registers[x_index] = self.registers[x_index] | self.registers[y_index];
                 }
                 0x2 => {
                     //todo!("8XY2: sets Vx to Vx & Vy. Vx = Vx & Vy");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-                    self.registers[register_x_index] =
-                        self.registers[register_x_index] & self.registers[register_y_index];
+                    self.registers[x_index] = self.registers[x_index] & self.registers[y_index];
                 }
                 0x3 => {
                     //todo!("8XY3: sets Vx to Vx xor Vy. Vx = Vx ^ Vy");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-                    self.registers[register_x_index] =
-                        self.registers[register_x_index] ^ self.registers[register_y_index];
+                    self.registers[x_index] = self.registers[x_index] ^ self.registers[y_index];
                 }
                 0x4 => {
                     //todo!("8XY4: Adds Vy to Vx. VF(carry flag) is set to 1 when there's an overflow, and to 0 when there is not");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-
-                    match self.registers[register_x_index]
-                        .checked_add(self.registers[register_y_index])
-                    {
+                    match self.registers[x_index].checked_add(self.registers[y_index]) {
                         Some(output) => {
-                            self.registers[register_x_index] = output;
+                            self.registers[x_index] = output;
                             self.registers[0x0F] = 0;
                         }
                         None => {
-                            self.registers[register_x_index] = self.registers[register_x_index]
-                                .wrapping_add(self.registers[register_y_index]);
+                            self.registers[x_index] =
+                                self.registers[x_index].wrapping_add(self.registers[y_index]);
                             self.registers[0x0F] = 1;
                         }
                     }
                 }
                 0x5 => {
                     //todo!("8XY5: Vy is subtracted from Vx. VF (carry flag) is set to 0 when there is an underflow, and 1 when there is not. (VF = 1 if Vx >= Vy and 0 if not)");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-
-                    match self.registers[register_x_index]
-                        .checked_sub(self.registers[register_y_index])
-                    {
+                    match self.registers[x_index].checked_sub(self.registers[y_index]) {
                         Some(output) => {
-                            self.registers[register_x_index] = output;
+                            self.registers[x_index] = output;
                             self.registers[0x0F] = 1;
                         }
                         None => {
-                            self.registers[register_x_index] = self.registers[register_x_index]
-                                .wrapping_sub(self.registers[register_y_index]);
+                            self.registers[x_index] =
+                                self.registers[x_index].wrapping_sub(self.registers[y_index]);
                             self.registers[0x0F] = 0;
                         }
                     }
                 }
                 0x6 => {
                     //                    todo!("8XY6: stores to least significant bit of Vx in VF and then shifts Vx to the right by 1. Vx = Vx >> 1");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
 
-                    let least_sig_bit = self.registers[register_x_index] & 0x01;
+                    let least_sig_bit = self.registers[x_index] & 0x01;
                     self.registers[0x0F] = least_sig_bit;
-                    self.registers[register_x_index] = self.registers[register_x_index] >> 1;
+                    self.registers[x_index] = self.registers[x_index] >> 1;
                 }
                 0x7 => {
                     //todo!("8XY7: sets Vx to Vy minus Vx. Vf is set to 0 when there is an underflow, and 1 when there is not. i.e. VF = 1 when Vy >= Vx");
-
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-
-                    match self.registers[register_y_index]
-                        .checked_sub(self.registers[register_x_index])
-                    {
+                    match self.registers[y_index].checked_sub(self.registers[x_index]) {
                         Some(output) => {
-                            self.registers[register_x_index] = output;
+                            self.registers[x_index] = output;
                             self.registers[0x0F] = 1;
                         }
                         None => {
-                            self.registers[register_x_index] = self.registers[register_y_index]
-                                .wrapping_sub(self.registers[register_x_index]);
+                            self.registers[x_index] =
+                                self.registers[y_index].wrapping_sub(self.registers[x_index]);
                             self.registers[0x0F] = 0;
                         }
                     }
                 }
                 0xE => {
                     //todo!("8XYE: stores the most significant bit in VF and shifts VX to the left by 1. Vx = Vx << 1");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let most_sig_bit = (self.registers[register_x_index] & 0b1000_0000) >> 7;
+                    let most_sig_bit = (self.registers[x_index] & 0b1000_0000) >> 7;
                     self.registers[0x0F] = most_sig_bit;
-                    self.registers[register_x_index] = self.registers[register_x_index] << 1;
+                    self.registers[x_index] = self.registers[x_index] << 1;
                 }
                 _ => {
                     todo!("invalid opcod3")
@@ -247,47 +220,32 @@ impl Chip8 {
             }
             0xA => {
                 //todo!("ANNN: Sets the I(instruction) address to NNN");
-                let value = instruction & 0x0FFF;
-                self.instruction_pointer = value;
+                self.instruction_pointer = nnn;
             }
             0xB => {
                 //todo!("BNNN: jumps to the address NNN plus V0. PC(program counter) = V0 + NNN");
-                let value = instruction & 0x0FFF;
-                self.program_counter = self.registers[0x00] as u16 + value;
+                self.program_counter = self.registers[0x00] as u16 + nnn;
             }
             0xC => {
                 //todo!("CXNN: sets Vx to the result of a bitwise and operation on a random number (typically 0 to 255) and NN. Vx = rand() & NN");
-                let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                let num = (instruction & 0x00FF) as u8;
                 let random_number: u8 = rand::thread_rng().gen();
-                self.registers[register_x_index] = random_number & num;
+                self.registers[x_index] = random_number & nn;
             }
             0xD => {
                 //todo!("DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen");
-                let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
-                let pixel_height = (instruction & 0x000F) as usize;
-                let pixel_width = 8; //pixel width is always 8
-                                     //let ip = self.instruction_pointer as usize;
+                //let ip = self.instruction_pointer as usize;
+                let x_location = self.registers[x_index];
+                let y_location = self.registers[y_index];
                 let ip = 60 as usize;
 
-                for row_offset in 0..pixel_height {
+                for row_offset in 0..n as usize {
                     let row_byte = self.memory[ip + row_offset];
-                    println!("row byte: {:#b}", row_byte);
                     for column_offset in 0..8 {
                         let bit_shift_amount = 7 - column_offset;
-                        println!("bit shift amount: {bit_shift_amount}");
                         let and_val = 0b1000_0000 >> column_offset;
                         let pixel_val = ((row_byte & and_val) >> bit_shift_amount) == 1;
-                        println!("pixel_val = {pixel_val}");
-                        let x_location = self.registers[register_x_index];
-                        let y_location = self.registers[register_y_index];
-
-                        println!("xl: {x_location}");
-                        println!("yl: {y_location}");
-
-                        self.vram[(y_location as usize + row_offset)]
-                            [(x_location as usize + column_offset)]
+                        self.vram[y_location as usize + row_offset]
+                            [x_location as usize + column_offset]
                             .set(pixel_val);
                     }
                 }
@@ -308,31 +266,26 @@ impl Chip8 {
             0xF => match instruction & 0x00FF {
                 0x0007 => {
                     //todo!("FX07: sets vx to the value of the delay timer. Vx = get_delay()");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    self.registers[register_x_index] = self.delay_timer;
+                    self.registers[x_index] = self.delay_timer;
                 }
                 0x000A => {
                     todo!("FX0A: A key press is awaited, and then stored in Vx (blocking operation, all instruction halted until next key event. probably a loop?)");
                 }
                 0x0015 => {
                     //todo!("FX15: sets the delay timer to Vx. delay_timer(Vx)");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    self.delay_timer = self.registers[register_x_index];
+                    self.delay_timer = self.registers[x_index];
                 }
                 0x001E => {
                     //todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
                     self.instruction_pointer =
-                        self.instruction_pointer + self.registers[register_x_index] as u16
+                        self.instruction_pointer + self.registers[x_index] as u16
                 }
                 0x0029 => {
                     todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
                 }
                 0x0033 => {
                     //todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
-                    let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
-                    let register_x_val = self.registers[register_x_index];
+                    let register_x_val = self.registers[x_index];
                     let hundreds = (register_x_val / 100) % 10;
                     let tens = (register_x_val / 10) % 10;
                     let ones = register_x_val % 10;
@@ -344,12 +297,10 @@ impl Chip8 {
                 }
                 0x0055 => {
                     //todo!("FX55: stores from V0 to Vx (including Vx) in memory, starting at address I. the offset from I is increased by 1 for each value written, but I itself is left unmodified. reg_dum(Vx, &I)");
-                    //+1 bc zero index
-                    let max_register = (((instruction & 0x0F00) >> 8) + 1) as usize;
                     let instruction_pointer = self.instruction_pointer as usize;
                     self.registers
                         .iter()
-                        .take(max_register)
+                        .take(x_index + 1) //+1 bc zero index
                         .enumerate()
                         .for_each(|(index, register)| {
                             self.memory[instruction_pointer + index] = *register;
@@ -357,9 +308,8 @@ impl Chip8 {
                 }
                 0x0065 => {
                     //todo!("FX65: Fills from V0 to Vx (including Vx) with values from memory, starting at address I. the offset from I is increased by 1 for each value read, but I remains umodified.");
-                    let max_register = (((instruction & 0x0F00) >> 8) + 1) as usize;
                     let ip = self.instruction_pointer as usize;
-                    let mem_slice = &self.memory[ip..ip + max_register];
+                    let mem_slice = &self.memory[ip..ip + x_index];
 
                     mem_slice.iter().enumerate().for_each(|(index, mem_val)| {
                         self.registers[index] = *mem_val;
