@@ -281,7 +281,10 @@ impl Chip8 {
                         self.instruction_pointer + self.registers[x_index] as u16
                 }
                 0x0029 => {
-                    todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
+                    //todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
+                    //self.instruction_pointer = self.memory[self.registers[x_index] as usize] as u16;
+                    let sprite_addr = self.registers[x_index] * 5;
+                    self.instruction_pointer = sprite_addr as u16;
                 }
                 0x0033 => {
                     //todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
@@ -636,5 +639,19 @@ mod tests {
         assert_eq!(0x7E, chip8.registers[0x03]);
         assert_eq!(0xEF, chip8.registers[0x04]);
         assert_eq!(0x00, chip8.registers[0x05]);
+    }
+
+    #[test]
+    fn opcode_fx29_test() {
+        let instruction = 0xF429;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x04] = 0x04;
+        chip8.handle_instruction(instruction);
+        assert_eq!(20, chip8.instruction_pointer);
+
+        let instruction = 0xFE29;
+        chip8.registers[0x0E] = 0x0A;
+        chip8.handle_instruction(instruction);
+        assert_eq!(50, chip8.instruction_pointer);
     }
 }
