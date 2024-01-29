@@ -109,27 +109,44 @@ impl Chip8 {
         let nnn = instruction & 0x0FFF; // for instructions like ANNN, BNNN, etc.
         let nn = (instruction & 0x00FF) as u8; // for instruction like 6XNN, 7XNN, etc.
         let n = (instruction & 0x000F) as u8; // for instructions like DXYN
+        let mut increment_instruction_pointer = true;
         match instruction >> 12 {
             0x00E0 => {
-                todo!("clear diplay");
+                //todo!("clear diplay");
+                self.vram.iter_mut().for_each(|row| {
+                    row.iter_mut().for_each(|pixel| {
+                        pixel.turn_off();
+                    });
+                });
+                self.vram_changed = true;
             }
             0x00EE => {
                 todo!("return");
             }
             0x1 => {
-                todo!("goto NNN");
+                //todo!("goto NNN");
+                self.instruction_pointer = nnn;
             }
             0x2 => {
                 todo!("call subroutine at NNN");
             }
             0x3 => {
-                todo!("conditional, 3XNN: skips next instruction if Vx = NN");
+                //todo!("conditional, 3XNN: skips next instruction if Vx = NN");
+                if self.registers[x_index] == nn {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
             }
             0x4 => {
-                todo!("conditional, 4XNN: skips next instruction if Vx != NN");
+                //todo!("conditional, 4XNN: skips next instruction if Vx != NN");
+                if self.registers[x_index] != nn {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
             }
             0x5 => {
-                todo!("conditional, 5XY0: skips next instruction if Vx == Vy");
+                //todo!("conditional, 5XY0: skips next instruction if Vx == Vy");
+                if self.registers[x_index] == self.registers[y_index] {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
             }
             0x6 => {
                 //todo!("6XNN: sets Vx to NN");
@@ -216,11 +233,15 @@ impl Chip8 {
                 }
             },
             0x9 => {
-                todo!("9XY0: skips the next instruction if Vx != Vy");
+                //todo!("9XY0: skips the next instruction if Vx != Vy");
+                if self.registers[x_index] != self.registers[y_index] {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
             }
             0xA => {
                 //todo!("ANNN: Sets the I(instruction) address to NNN");
                 self.instruction_pointer = nnn;
+                increment_instruction_pointer = false;
             }
             0xB => {
                 //todo!("BNNN: jumps to the address NNN plus V0. PC(program counter) = V0 + NNN");
@@ -278,13 +299,15 @@ impl Chip8 {
                 0x001E => {
                     //todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
                     self.instruction_pointer =
-                        self.instruction_pointer + self.registers[x_index] as u16
+                        self.instruction_pointer + self.registers[x_index] as u16;
+                    increment_instruction_pointer = false;
                 }
                 0x0029 => {
                     //todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
                     //self.instruction_pointer = self.memory[self.registers[x_index] as usize] as u16;
                     let sprite_addr = self.registers[x_index] * 5;
                     self.instruction_pointer = sprite_addr as u16;
+                    increment_instruction_pointer = false;
                 }
                 0x0033 => {
                     //todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
@@ -322,6 +345,10 @@ impl Chip8 {
             },
             _ => (),
         };
+
+        if increment_instruction_pointer {
+            self.instruction_pointer = self.instruction_pointer + 2;
+        }
     }
 }
 
@@ -609,7 +636,8 @@ mod tests {
 
         chip8.instruction_pointer = 0x923;
         chip8.handle_instruction(instruction);
-        let ip = chip8.instruction_pointer as usize;
+        // get original ip
+        let ip = chip8.instruction_pointer as usize - 2;
 
         assert_eq!(31, chip8.memory[ip]);
         assert_eq!(243, chip8.memory[ip + 1]);
@@ -651,6 +679,110 @@ mod tests {
 
         let instruction = 0xFE29;
         chip8.registers[0x0E] = 0x0A;
+        chip8.handle_instruction(instruction);
+        assert_eq!(50, chip8.instruction_pointer);
+    }
+    /*
+    *0x3 => {
+                //todo!("conditional, 3XNN: skips next instruction if Vx = NN");
+                if self.registers[x_index] == nn {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
+            }
+            0x4 => {
+                //todo!("conditional, 4XNN: skips next instruction if Vx != NN");
+                if self.registers[x_index] != nn {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
+            }
+            0x5 => {
+                //todo!("conditional, 5XY0: skips next instruction if Vx == Vy");
+                if self.registers[x_index] == self.registers[y_index] {
+                    self.instruction_pointer = self.instruction_pointer + 2;
+                }
+
+    */
+
+    #[test]
+    fn opcode_3xnn_no_skip_test() {
+        let instruction = 0x3B35;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x21;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(48, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_3xnn_skip_test() {
+        let instruction = 0x3B35;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(50, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_4xnn_skip_test() {
+        let instruction = 0x4B35;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x21;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(50, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_4xnn_no_skip_test() {
+        let instruction = 0x4B35;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(48, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_5xy0_no_skip_test() {
+        let instruction = 0x5B30;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.registers[0x03] = 0x89;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(48, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_5xy0_skip_test() {
+        let instruction = 0x5B30;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.registers[0x03] = 0x35;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(50, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_9xy0_no_skip_test() {
+        let instruction = 0x9B30;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.registers[0x03] = 0x35;
+        chip8.instruction_pointer = 46;
+        chip8.handle_instruction(instruction);
+        assert_eq!(48, chip8.instruction_pointer);
+    }
+
+    #[test]
+    fn opcode_9xy0_skip_test() {
+        let instruction = 0x9B30;
+        let mut chip8 = Chip8::new();
+        chip8.registers[0x0B] = 0x35;
+        chip8.registers[0x03] = 0x89;
+        chip8.instruction_pointer = 46;
         chip8.handle_instruction(instruction);
         assert_eq!(50, chip8.instruction_pointer);
     }
