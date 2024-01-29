@@ -1,6 +1,11 @@
 extern crate rand;
 
+use crate::pixel::Pixel;
+use crate::renderer::Renderer;
 use rand::prelude::Rng;
+
+const DEFAULT_CHIP8_PIXEL_HEIGHT: u32 = 64;
+const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 32;
 
 pub struct Chip8 {
     memory: [u8; 4096],
@@ -10,6 +15,9 @@ pub struct Chip8 {
     program_counter: u16,
     delay_timer: u8,
     sound_timer: u8,
+    pub vram: Vec<Vec<Pixel>>,
+    pub vram_changed: bool,
+    pub vram_scale: usize,
 }
 
 impl Chip8 {
@@ -22,6 +30,9 @@ impl Chip8 {
             program_counter: 0,
             delay_timer: 0,
             sound_timer: 0,
+            vram: Vec::new(),
+            vram_changed: false,
+            vram_scale: 1,
         };
 
         chip8.load_sprites_into_memory();
@@ -29,6 +40,7 @@ impl Chip8 {
     }
 
     pub fn load_sprites_into_memory(&mut self) {
+        //0b1111_0000, 0b0101_0000, 0b0101_00000
         let built_in_sprites: [u8; 80] = [
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
             0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -52,6 +64,43 @@ impl Chip8 {
             .iter()
             .enumerate()
             .for_each(|(index, byte)| self.memory[index] = *byte);
+    }
+
+    pub fn initialize_pixels(&mut self, height: u32, width: u32) -> Result<(), String> {
+        if height % DEFAULT_CHIP8_PIXEL_HEIGHT != 0 {
+            return Err(format!("Window height is not evenly divisible by default height. Window height: {}, default height: {}", height, DEFAULT_CHIP8_PIXEL_HEIGHT));
+        }
+
+        if width % DEFAULT_CHIP8_PIXEL_WIDTH != 0 {
+            return Err(format!("Window width is not evenly divisible by default width. Window width: {}, default width: {}", width, DEFAULT_CHIP8_PIXEL_WIDTH));
+        }
+
+        let height_scale = height / DEFAULT_CHIP8_PIXEL_HEIGHT;
+        let width_scale = width / DEFAULT_CHIP8_PIXEL_WIDTH;
+
+        if height_scale != width_scale {
+            return Err(format!("Window width scale and window height scale do not match. Width scale: {}, height scale: {}", width_scale, height_scale));
+        }
+
+        //arbitrarily chose height scale, it and width_scale should be equal here
+        // if theyre not, we're screwed!
+        self.vram_scale = height_scale as usize;
+
+        // 64 x 32 pixels
+        for y_location in 0..DEFAULT_CHIP8_PIXEL_WIDTH {
+            let mut row: Vec<Pixel> = Vec::new();
+            for x_location in 0..DEFAULT_CHIP8_PIXEL_HEIGHT {
+                //let on = (x_location + y_location) % 2 == 0;
+                row.push(Pixel::new(x_location, y_location, false));
+            }
+            self.vram.push(row);
+        }
+
+        Ok(())
+    }
+
+    pub fn set_register_value(&mut self, register: u8, value: u8) {
+        self.registers[register as usize] = value;
     }
 
     pub fn handle_instruction(&mut self, instruction: u16) {
@@ -207,14 +256,43 @@ impl Chip8 {
                 self.program_counter = self.registers[0x00] as u16 + value;
             }
             0xC => {
-                todo!("CXNN: sets Vx to the result of a bitwise and operation on a random number (typically 0 to 255) and NN. Vx = rand() & NN");
+                //todo!("CXNN: sets Vx to the result of a bitwise and operation on a random number (typically 0 to 255) and NN. Vx = rand() & NN");
                 let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
                 let num = (instruction & 0x00FF) as u8;
                 let random_number: u8 = rand::thread_rng().gen();
                 self.registers[register_x_index] = random_number & num;
             }
             0xD => {
-                todo!("DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen");
+                //todo!("DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen");
+                let register_x_index = ((instruction & 0x0F00) >> 8) as usize;
+                let register_y_index = ((instruction & 0x00F0) >> 4) as usize;
+                let pixel_height = (instruction & 0x000F) as usize;
+                let pixel_width = 8; //pixel width is always 8
+                                     //let ip = self.instruction_pointer as usize;
+                let ip = 60 as usize;
+
+                for row_offset in 0..pixel_height {
+                    let row_byte = self.memory[ip + row_offset];
+                    println!("row byte: {:#b}", row_byte);
+                    for column_offset in 0..8 {
+                        let bit_shift_amount = 7 - column_offset;
+                        println!("bit shift amount: {bit_shift_amount}");
+                        let and_val = 0b1000_0000 >> column_offset;
+                        let pixel_val = ((row_byte & and_val) >> bit_shift_amount) == 1;
+                        println!("pixel_val = {pixel_val}");
+                        let x_location = self.registers[register_x_index];
+                        let y_location = self.registers[register_y_index];
+
+                        println!("xl: {x_location}");
+                        println!("yl: {y_location}");
+
+                        self.vram[(y_location as usize + row_offset)]
+                            [(x_location as usize + column_offset)]
+                            .set(pixel_val);
+                    }
+                }
+
+                self.vram_changed = true;
             }
             0xE => match instruction & 0x00F0 {
                 0x0090 => {

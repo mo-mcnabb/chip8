@@ -2,7 +2,7 @@ extern crate sdl2;
 mod chip8;
 mod pixel;
 mod renderer;
-use crate::pixel::Pixel;
+use crate::chip8::Chip8;
 use crate::renderer::Renderer;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -20,10 +20,16 @@ pub fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let (height, weight) = &window.size();
+    let (height, width) = &window.size();
     let mut renderer = Renderer::new(window)?;
 
-    let mut pixels = Pixel::build_from_window_size(*height, *weight)?;
+    let mut chip8 = Chip8::new();
+    chip8.initialize_pixels(*height, *width);
+    chip8.set_register_value(0x03, 32);
+    chip8.set_register_value(0x05, 16);
+
+    let instruction: u16 = 0xD355;
+    chip8.handle_instruction(instruction);
     //println!("{:#?}", pixels);
     let mut event_pump = sdl_context.event_pump()?;
 
@@ -38,7 +44,9 @@ pub fn main() -> Result<(), String> {
                 _ => {}
             }
         }
-        renderer.draw(&mut pixels);
+        if chip8.vram_changed {
+            renderer.draw(&mut chip8);
+        }
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
         // The rest of the game loop goes here...
     }
