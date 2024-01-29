@@ -10,14 +10,15 @@ const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 32;
 pub struct Chip8 {
     memory: [u8; 4096],
     registers: [u8; 16],
+    index_register: u16,
     stack: Vec<u16>,
-    instruction_pointer: u16,
     program_counter: u16,
     delay_timer: u8,
     sound_timer: u8,
     pub vram: Vec<Vec<Pixel>>,
     pub vram_changed: bool,
     pub vram_scale: usize,
+    awaiting_keypress: bool,
 }
 
 impl Chip8 {
@@ -25,14 +26,15 @@ impl Chip8 {
         let mut chip8 = Chip8 {
             memory: [0; 4096],
             registers: [0; 16],
+            index_register: 0,
             stack: Vec::new(),
-            instruction_pointer: 0,
             program_counter: 0,
             delay_timer: 0,
             sound_timer: 0,
             vram: Vec::new(),
             vram_changed: false,
             vram_scale: 1,
+            awaiting_keypress: false,
         };
 
         chip8.load_sprites_into_memory();
@@ -103,13 +105,14 @@ impl Chip8 {
         self.registers[register as usize] = value;
     }
 
-    pub fn handle_instruction(&mut self, instruction: u16) {
+    pub fn handle_instruction(&mut self, instruction: u16, keyboard_state: &[bool; 16]) {
         let x_index = ((instruction & 0x0F00) >> 8) as usize;
         let y_index = ((instruction & 0x00F0) >> 4) as usize;
         let nnn = instruction & 0x0FFF; // for instructions like ANNN, BNNN, etc.
         let nn = (instruction & 0x00FF) as u8; // for instruction like 6XNN, 7XNN, etc.
         let n = (instruction & 0x000F) as u8; // for instructions like DXYN
-        let mut increment_instruction_pointer = true;
+        let mut increment_program_counter = true;
+
         match instruction >> 12 {
             0x00E0 => {
                 //todo!("clear diplay");
@@ -121,31 +124,35 @@ impl Chip8 {
                 self.vram_changed = true;
             }
             0x00EE => {
-                todo!("return");
+                // todo!("return");
+                self.program_counter = self.stack.pop().unwrap();
             }
             0x1 => {
                 //todo!("goto NNN");
-                self.instruction_pointer = nnn;
+                self.program_counter = nnn;
+                increment_program_counter = false;
             }
             0x2 => {
-                todo!("call subroutine at NNN");
+                //todo!("call subroutine at NNN");
+                self.stack.push(self.program_counter);
+                self.program_counter = nnn;
             }
             0x3 => {
                 //todo!("conditional, 3XNN: skips next instruction if Vx = NN");
                 if self.registers[x_index] == nn {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0x4 => {
                 //todo!("conditional, 4XNN: skips next instruction if Vx != NN");
                 if self.registers[x_index] != nn {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0x5 => {
                 //todo!("conditional, 5XY0: skips next instruction if Vx == Vy");
                 if self.registers[x_index] == self.registers[y_index] {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0x6 => {
@@ -235,13 +242,13 @@ impl Chip8 {
             0x9 => {
                 //todo!("9XY0: skips the next instruction if Vx != Vy");
                 if self.registers[x_index] != self.registers[y_index] {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0xA => {
                 //todo!("ANNN: Sets the I(instruction) address to NNN");
-                self.instruction_pointer = nnn;
-                increment_instruction_pointer = false;
+                self.index_register = nnn;
+                //increment_program_counter = false;
             }
             0xB => {
                 //todo!("BNNN: jumps to the address NNN plus V0. PC(program counter) = V0 + NNN");
@@ -254,13 +261,13 @@ impl Chip8 {
             }
             0xD => {
                 //todo!("DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen");
-                //let ip = self.instruction_pointer as usize;
+                //let ip = self.program_counter as usize;
                 let x_location = self.registers[x_index];
                 let y_location = self.registers[y_index];
-                let ip = 60 as usize;
+                let index = self.index_register as usize;
 
                 for row_offset in 0..n as usize {
-                    let row_byte = self.memory[ip + row_offset];
+                    let row_byte = self.memory[index + row_offset];
                     for column_offset in 0..8 {
                         let bit_shift_amount = 7 - column_offset;
                         let and_val = 0b1000_0000 >> column_offset;
@@ -275,10 +282,18 @@ impl Chip8 {
             }
             0xE => match instruction & 0x00F0 {
                 0x0090 => {
-                    todo!("EX9E: skips the next instruction if the key stored in Vx is pressed (usually the next instruction is a jump to skip a code block). if(key() == Vx)");
+                    //todo!("EX9E: skips the next instruction if the key stored in Vx is pressed (usually the next instruction is a jump to skip a code block). if(key() == Vx)");
+                    let key = self.registers[x_index];
+                    if keyboard_state[key as usize] {
+                        self.program_counter = self.program_counter + 2;
+                    }
                 }
                 0x00A0 => {
-                    todo!("EXA1: skips the next instruction if the key stored in Vx is not pressed (usually the next instruction is a jump to skip a code block. if (key() != Vx))");
+                    //todo!("EXA1: skips the next instruction if the key stored in Vx is not pressed (usually the next instruction is a jump to skip a code block. if (key() != Vx))");
+                    let key = self.registers[x_index];
+                    if !keyboard_state[key as usize] {
+                        self.program_counter = self.program_counter + 2;
+                    }
                 }
                 _ => {
                     todo!("invalid opcode");
@@ -290,7 +305,14 @@ impl Chip8 {
                     self.registers[x_index] = self.delay_timer;
                 }
                 0x000A => {
-                    todo!("FX0A: A key press is awaited, and then stored in Vx (blocking operation, all instruction halted until next key event. probably a loop?)");
+                    //todo!("FX0A: A key press is awaited, and then stored in Vx (blocking operation, all instruction halted until next key event. probably a loop?)");
+                    self.awaiting_keypress = true;
+                    if self.awaiting_keypress {
+                        if let Some(key) = keyboard_state.iter().position(|&state| state) {
+                            self.registers[x_index] = key as u8;
+                            self.awaiting_keypress = false;
+                        }
+                    }
                 }
                 0x0015 => {
                     //todo!("FX15: sets the delay timer to Vx. delay_timer(Vx)");
@@ -298,16 +320,13 @@ impl Chip8 {
                 }
                 0x001E => {
                     //todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
-                    self.instruction_pointer =
-                        self.instruction_pointer + self.registers[x_index] as u16;
-                    increment_instruction_pointer = false;
+                    self.index_register = self.index_register + self.registers[x_index] as u16;
+                    increment_program_counter = false;
                 }
                 0x0029 => {
                     //todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
-                    //self.instruction_pointer = self.memory[self.registers[x_index] as usize] as u16;
                     let sprite_addr = self.registers[x_index] * 5;
-                    self.instruction_pointer = sprite_addr as u16;
-                    increment_instruction_pointer = false;
+                    self.index_register = sprite_addr as u16;
                 }
                 0x0033 => {
                     //todo!("FX33: stores the binary-codeddecimal representation of Vx, with the hundreds digit in memory at location I, the tens digit at location I+1, and the ones digit at locaion I + 2");
@@ -315,26 +334,26 @@ impl Chip8 {
                     let hundreds = (register_x_val / 100) % 10;
                     let tens = (register_x_val / 10) % 10;
                     let ones = register_x_val % 10;
-                    let instruction_pointer = self.instruction_pointer as usize;
+                    let index = self.index_register as usize;
 
-                    self.memory[instruction_pointer] = hundreds;
-                    self.memory[instruction_pointer + 1] = tens;
-                    self.memory[instruction_pointer + 2] = ones;
+                    self.memory[index] = hundreds;
+                    self.memory[index + 1] = tens;
+                    self.memory[index + 2] = ones;
                 }
                 0x0055 => {
                     //todo!("FX55: stores from V0 to Vx (including Vx) in memory, starting at address I. the offset from I is increased by 1 for each value written, but I itself is left unmodified. reg_dum(Vx, &I)");
-                    let instruction_pointer = self.instruction_pointer as usize;
+                    let program_counter = self.program_counter as usize;
                     self.registers
                         .iter()
                         .take(x_index + 1) //+1 bc zero index
                         .enumerate()
                         .for_each(|(index, register)| {
-                            self.memory[instruction_pointer + index] = *register;
+                            self.memory[program_counter + index] = *register;
                         });
                 }
                 0x0065 => {
                     //todo!("FX65: Fills from V0 to Vx (including Vx) with values from memory, starting at address I. the offset from I is increased by 1 for each value read, but I remains umodified.");
-                    let ip = self.instruction_pointer as usize;
+                    let ip = self.program_counter as usize;
                     let mem_slice = &self.memory[ip..ip + x_index];
 
                     mem_slice.iter().enumerate().for_each(|(index, mem_val)| {
@@ -346,8 +365,8 @@ impl Chip8 {
             _ => (),
         };
 
-        if increment_instruction_pointer {
-            self.instruction_pointer = self.instruction_pointer + 2;
+        if increment_program_counter {
+            self.program_counter = self.program_counter + 2;
         }
     }
 }
@@ -364,7 +383,7 @@ mod tests {
         assert_eq!(4096, chip8.memory.len());
         assert_eq!(16, chip8.registers.len());
         assert_eq!(empty_vec, chip8.stack);
-        assert_eq!(0, chip8.instruction_pointer);
+        assert_eq!(0, chip8.program_counter);
         assert_eq!(0, chip8.program_counter);
         assert_eq!(0, chip8.delay_timer);
         assert_eq!(0, chip8.sound_timer);
@@ -556,7 +575,7 @@ mod tests {
         let mut chip8 = Chip8::new();
 
         chip8.handle_instruction(instruction);
-        assert_eq!(0x232, chip8.instruction_pointer);
+        assert_eq!(0x232, chip8.program_counter);
     }
 
     #[test]
@@ -593,34 +612,34 @@ mod tests {
         let instruction = 0xFA1E;
         let mut chip8 = Chip8::new();
 
-        chip8.instruction_pointer = 0x30;
+        chip8.program_counter = 0x30;
         chip8.registers[0x0A] = 0x50;
 
         chip8.handle_instruction(instruction);
-        assert_eq!(0x80, chip8.instruction_pointer);
+        assert_eq!(0x80, chip8.program_counter);
     }
 
     #[test]
     fn opcode_fx33_test() {
         let instruction = 0xFC33;
         let mut chip8 = Chip8::new();
-        chip8.instruction_pointer = 0x0350;
+        chip8.program_counter = 0x0350;
         chip8.registers[0x0C] = 129;
 
-        let instruction_pointer_val = chip8.instruction_pointer as usize;
+        let program_counter_val = chip8.program_counter as usize;
         chip8.handle_instruction(instruction);
-        assert_eq!(1, chip8.memory[instruction_pointer_val]);
-        assert_eq!(2, chip8.memory[instruction_pointer_val + 1]);
-        assert_eq!(9, chip8.memory[instruction_pointer_val + 2]);
+        assert_eq!(1, chip8.memory[program_counter_val]);
+        assert_eq!(2, chip8.memory[program_counter_val + 1]);
+        assert_eq!(9, chip8.memory[program_counter_val + 2]);
 
-        chip8.instruction_pointer = 0x0450;
+        chip8.program_counter = 0x0450;
         chip8.registers[0x0C] = 65;
 
-        let instruction_pointer_val = chip8.instruction_pointer as usize;
+        let program_counter_val = chip8.program_counter as usize;
         chip8.handle_instruction(instruction);
-        assert_eq!(0, chip8.memory[instruction_pointer_val]);
-        assert_eq!(6, chip8.memory[instruction_pointer_val + 1]);
-        assert_eq!(5, chip8.memory[instruction_pointer_val + 2]);
+        assert_eq!(0, chip8.memory[program_counter_val]);
+        assert_eq!(6, chip8.memory[program_counter_val + 1]);
+        assert_eq!(5, chip8.memory[program_counter_val + 2]);
     }
 
     #[test]
@@ -634,10 +653,10 @@ mod tests {
         chip8.registers[0x03] = 0;
         chip8.registers[0x04] = 167;
 
-        chip8.instruction_pointer = 0x923;
+        chip8.program_counter = 0x923;
         chip8.handle_instruction(instruction);
         // get original ip
-        let ip = chip8.instruction_pointer as usize - 2;
+        let ip = chip8.program_counter as usize - 2;
 
         assert_eq!(31, chip8.memory[ip]);
         assert_eq!(243, chip8.memory[ip + 1]);
@@ -651,8 +670,8 @@ mod tests {
     fn opcode_fx65_test() {
         let instruction = 0xF565;
         let mut chip8 = Chip8::new();
-        chip8.instruction_pointer = 0x543;
-        let ip = chip8.instruction_pointer as usize;
+        chip8.program_counter = 0x543;
+        let ip = chip8.program_counter as usize;
 
         chip8.memory[ip] = 0x1E;
         chip8.memory[ip + 1] = 0x45;
@@ -675,30 +694,30 @@ mod tests {
         let mut chip8 = Chip8::new();
         chip8.registers[0x04] = 0x04;
         chip8.handle_instruction(instruction);
-        assert_eq!(20, chip8.instruction_pointer);
+        assert_eq!(20, chip8.program_counter);
 
         let instruction = 0xFE29;
         chip8.registers[0x0E] = 0x0A;
         chip8.handle_instruction(instruction);
-        assert_eq!(50, chip8.instruction_pointer);
+        assert_eq!(50, chip8.program_counter);
     }
     /*
     *0x3 => {
                 //todo!("conditional, 3XNN: skips next instruction if Vx = NN");
                 if self.registers[x_index] == nn {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0x4 => {
                 //todo!("conditional, 4XNN: skips next instruction if Vx != NN");
                 if self.registers[x_index] != nn {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
             }
             0x5 => {
                 //todo!("conditional, 5XY0: skips next instruction if Vx == Vy");
                 if self.registers[x_index] == self.registers[y_index] {
-                    self.instruction_pointer = self.instruction_pointer + 2;
+                    self.program_counter = self.program_counter + 2;
                 }
 
     */
@@ -708,9 +727,9 @@ mod tests {
         let instruction = 0x3B35;
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x21;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(48, chip8.instruction_pointer);
+        assert_eq!(48, chip8.program_counter);
     }
 
     #[test]
@@ -718,9 +737,9 @@ mod tests {
         let instruction = 0x3B35;
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(50, chip8.instruction_pointer);
+        assert_eq!(50, chip8.program_counter);
     }
 
     #[test]
@@ -728,9 +747,9 @@ mod tests {
         let instruction = 0x4B35;
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x21;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(50, chip8.instruction_pointer);
+        assert_eq!(50, chip8.program_counter);
     }
 
     #[test]
@@ -738,9 +757,9 @@ mod tests {
         let instruction = 0x4B35;
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(48, chip8.instruction_pointer);
+        assert_eq!(48, chip8.program_counter);
     }
 
     #[test]
@@ -749,9 +768,9 @@ mod tests {
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
         chip8.registers[0x03] = 0x89;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(48, chip8.instruction_pointer);
+        assert_eq!(48, chip8.program_counter);
     }
 
     #[test]
@@ -760,9 +779,9 @@ mod tests {
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
         chip8.registers[0x03] = 0x35;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(50, chip8.instruction_pointer);
+        assert_eq!(50, chip8.program_counter);
     }
 
     #[test]
@@ -771,9 +790,9 @@ mod tests {
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
         chip8.registers[0x03] = 0x35;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(48, chip8.instruction_pointer);
+        assert_eq!(48, chip8.program_counter);
     }
 
     #[test]
@@ -782,8 +801,8 @@ mod tests {
         let mut chip8 = Chip8::new();
         chip8.registers[0x0B] = 0x35;
         chip8.registers[0x03] = 0x89;
-        chip8.instruction_pointer = 46;
+        chip8.program_counter = 46;
         chip8.handle_instruction(instruction);
-        assert_eq!(50, chip8.instruction_pointer);
+        assert_eq!(50, chip8.program_counter);
     }
 }
