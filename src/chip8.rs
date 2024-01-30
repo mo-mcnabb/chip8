@@ -3,6 +3,7 @@ extern crate rand;
 use crate::pixel::Pixel;
 use crate::renderer::Renderer;
 use rand::prelude::Rng;
+use std::fs;
 
 const DEFAULT_CHIP8_PIXEL_HEIGHT: u32 = 64;
 const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 32;
@@ -28,7 +29,7 @@ impl Chip8 {
             registers: [0; 16],
             index_register: 0,
             stack: Vec::new(),
-            program_counter: 0,
+            program_counter: 0x200, // programs start at 0x200
             delay_timer: 0,
             sound_timer: 0,
             vram: Vec::new(),
@@ -68,6 +69,17 @@ impl Chip8 {
             .for_each(|(index, byte)| self.memory[index] = *byte);
     }
 
+    pub fn load_rom(&mut self, rom_file_path: String) -> Result<(), String> {
+        let rom_contents = fs::read(rom_file_path).expect("Error opening file");
+
+        let mem_start_location = 0x200;
+        for index in 0..rom_contents.len() {
+            self.memory[mem_start_location + index] = rom_contents[index];
+        }
+
+        Ok(())
+    }
+
     pub fn initialize_pixels(&mut self, height: u32, width: u32) -> Result<(), String> {
         if height % DEFAULT_CHIP8_PIXEL_HEIGHT != 0 {
             return Err(format!("Window height is not evenly divisible by default height. Window height: {}, default height: {}", height, DEFAULT_CHIP8_PIXEL_HEIGHT));
@@ -92,7 +104,6 @@ impl Chip8 {
         for y_location in 0..DEFAULT_CHIP8_PIXEL_WIDTH {
             let mut row: Vec<Pixel> = Vec::new();
             for x_location in 0..DEFAULT_CHIP8_PIXEL_HEIGHT {
-                //let on = (x_location + y_location) % 2 == 0;
                 row.push(Pixel::new(x_location, y_location, false));
             }
             self.vram.push(row);
@@ -105,7 +116,18 @@ impl Chip8 {
         self.registers[register as usize] = value;
     }
 
-    pub fn handle_instruction(&mut self, instruction: u16, keyboard_state: &[bool; 16]) {
+    fn decode(left_byte: u8, right_byte: u8) -> u16 {
+        let left_byte = left_byte as u16;
+        let right_byte = right_byte as u16;
+
+        (left_byte << 8) | right_byte
+    }
+
+    pub fn handle_next_instruction(&mut self, keyboard_state: &[bool; 16]) {
+        let instruction = Chip8::decode(
+            self.memory[self.program_counter as usize],
+            self.memory[self.program_counter as usize + 1],
+        );
         let x_index = ((instruction & 0x0F00) >> 8) as usize;
         let y_index = ((instruction & 0x00F0) >> 4) as usize;
         let nnn = instruction & 0x0FFF; // for instructions like ANNN, BNNN, etc.

@@ -28,11 +28,9 @@ pub fn main() -> Result<(), String> {
     chip8.set_register_value(0x03, 32);
     chip8.set_register_value(0x05, 16);
 
-    let instruction: u16 = 0xD355;
-    chip8.handle_instruction(instruction);
-    //println!("{:#?}", pixels);
     let mut event_pump = sdl_context.event_pump()?;
-
+    let mut keyboard_state = [false; 16];
+    chip8.load_rom(String::from("roms/IBM Logo.ch8"))?;
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -41,15 +39,54 @@ pub fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => {
+                    if let Some(key) = get_key_pressed(keycode) {
+                        keyboard_state[key] = true;
+                    }
+                }
+                Event::KeyUp {
+                    keycode: Some(keycode),
+                    ..
+                } => {
+                    if let Some(key) = get_key_pressed(keycode) {
+                        keyboard_state[key] = false;
+                    }
+                }
                 _ => {}
             }
         }
+
+        chip8.handle_next_instruction(&keyboard_state);
         if chip8.vram_changed {
             renderer.draw(&mut chip8);
         }
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
         // The rest of the game loop goes here...
     }
-
     Ok(())
+}
+
+fn get_key_pressed(key_pressed: Keycode) -> Option<usize> {
+    match key_pressed {
+        Keycode::Num0 => Some(0),
+        Keycode::Num1 => Some(1),
+        Keycode::Num2 => Some(2),
+        Keycode::Num3 => Some(3),
+        Keycode::Num4 => Some(4),
+        Keycode::Num5 => Some(5),
+        Keycode::Num6 => Some(6),
+        Keycode::Num7 => Some(7),
+        Keycode::Num8 => Some(8),
+        Keycode::Num9 => Some(9),
+        Keycode::A => Some(10),
+        Keycode::B => Some(11),
+        Keycode::C => Some(12),
+        Keycode::D => Some(13),
+        Keycode::E => Some(14),
+        Keycode::F => Some(15),
+        _ => None,
+    }
 }
