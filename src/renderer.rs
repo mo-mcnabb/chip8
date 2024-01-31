@@ -40,8 +40,6 @@ impl Renderer {
                 let color = if pixel.on { Color::WHITE } else { Color::BLACK };
                 self.canvas.set_draw_color(color);
 
-                println!("{:#?}", pixel);
-
                 self.canvas.fill_rect(Rect::new(
                     (pixel.x * chip8.vram_scale as u32) as i32,
                     (pixel.y * chip8.vram_scale as u32) as i32,

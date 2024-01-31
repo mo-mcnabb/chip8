@@ -6,7 +6,6 @@ use crate::chip8::Chip8;
 use crate::renderer::Renderer;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
 use std::time::Duration;
 
 pub fn main() -> Result<(), String> {
@@ -20,17 +19,19 @@ pub fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let (height, width) = &window.size();
+    let (width, height) = &window.size();
     let mut renderer = Renderer::new(window)?;
 
     let mut chip8 = Chip8::new();
-    chip8.initialize_pixels(*height, *width);
+    chip8.initialize_pixels(*width, *height)?;
     chip8.set_register_value(0x03, 32);
     chip8.set_register_value(0x05, 16);
 
     let mut event_pump = sdl_context.event_pump()?;
     let mut keyboard_state = [false; 16];
-    chip8.load_rom(String::from("roms/IBM Logo.ch8"))?;
+    chip8.load_rom(String::from("roms/3-corax+.ch8"))?;
+    let mut is_stepping = true;
+
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -39,6 +40,12 @@ pub fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(Keycode::N),
+                    ..
+                } => {
+                    is_stepping = !is_stepping;
+                }
                 Event::KeyDown {
                     keycode: Some(keycode),
                     ..
@@ -59,11 +66,17 @@ pub fn main() -> Result<(), String> {
             }
         }
 
+        if is_stepping {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            continue;
+        }
+
         chip8.handle_next_instruction(&keyboard_state);
         if chip8.vram_changed {
             renderer.draw(&mut chip8);
         }
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
+        is_stepping = true;
         // The rest of the game loop goes here...
     }
     Ok(())

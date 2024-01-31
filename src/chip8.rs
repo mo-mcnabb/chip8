@@ -5,8 +5,8 @@ use crate::renderer::Renderer;
 use rand::prelude::Rng;
 use std::fs;
 
-const DEFAULT_CHIP8_PIXEL_HEIGHT: u32 = 64;
-const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 32;
+const DEFAULT_CHIP8_PIXEL_HEIGHT: u32 = 32;
+const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 64;
 
 pub struct Chip8 {
     memory: [u8; 4096],
@@ -80,7 +80,7 @@ impl Chip8 {
         Ok(())
     }
 
-    pub fn initialize_pixels(&mut self, height: u32, width: u32) -> Result<(), String> {
+    pub fn initialize_pixels(&mut self, width: u32, height: u32) -> Result<(), String> {
         if height % DEFAULT_CHIP8_PIXEL_HEIGHT != 0 {
             return Err(format!("Window height is not evenly divisible by default height. Window height: {}, default height: {}", height, DEFAULT_CHIP8_PIXEL_HEIGHT));
         }
@@ -101,9 +101,9 @@ impl Chip8 {
         self.vram_scale = height_scale as usize;
 
         // 64 x 32 pixels
-        for y_location in 0..DEFAULT_CHIP8_PIXEL_WIDTH {
+        for y_location in 0..DEFAULT_CHIP8_PIXEL_HEIGHT {
             let mut row: Vec<Pixel> = Vec::new();
-            for x_location in 0..DEFAULT_CHIP8_PIXEL_HEIGHT {
+            for x_location in 0..DEFAULT_CHIP8_PIXEL_WIDTH {
                 row.push(Pixel::new(x_location, y_location, false));
             }
             self.vram.push(row);
@@ -136,19 +136,22 @@ impl Chip8 {
         let mut increment_program_counter = true;
 
         match instruction >> 12 {
-            0x00E0 => {
-                //todo!("clear diplay");
-                self.vram.iter_mut().for_each(|row| {
-                    row.iter_mut().for_each(|pixel| {
-                        pixel.turn_off();
+            0x0 => match instruction & 0x00FF {
+                0x00E0 => {
+                    //todo!("clear diplay");
+                    self.vram.iter_mut().for_each(|row| {
+                        row.iter_mut().for_each(|pixel| {
+                            pixel.turn_off();
+                        });
                     });
-                });
-                self.vram_changed = true;
-            }
-            0x00EE => {
-                // todo!("return");
-                self.program_counter = self.stack.pop().unwrap();
-            }
+                    self.vram_changed = true;
+                }
+                0x00EE => {
+                    // todo!("return");
+                    self.program_counter = self.stack.pop().unwrap();
+                }
+                _ => {}
+            },
             0x1 => {
                 //todo!("goto NNN");
                 self.program_counter = nnn;
@@ -158,6 +161,7 @@ impl Chip8 {
                 //todo!("call subroutine at NNN");
                 self.stack.push(self.program_counter);
                 self.program_counter = nnn;
+                increment_program_counter = false;
             }
             0x3 => {
                 //todo!("conditional, 3XNN: skips next instruction if Vx = NN");
@@ -183,7 +187,7 @@ impl Chip8 {
             }
             0x7 => {
                 //todo!("7XNN: adds NN to Vx (carry flag not changed)");
-                self.registers[x_index] = self.registers[x_index] + nn;
+                self.registers[x_index] = self.registers[x_index].wrapping_add(nn);
             }
             0x8 => match instruction & 0x000F {
                 0x0 => {
@@ -284,19 +288,30 @@ impl Chip8 {
             0xD => {
                 //todo!("DXYN: Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels. Each row of 8 pixels is read as bit-coded starting from memory location I; I value does not change after the execution of this instruction. As described above, VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that does not happen");
                 //let ip = self.program_counter as usize;
+                self.registers[0x0F] = 0;
                 let x_location = self.registers[x_index];
                 let y_location = self.registers[y_index];
                 let index = self.index_register as usize;
 
-                for row_offset in 0..n as usize {
-                    let row_byte = self.memory[index + row_offset];
+                for row_offset in 0..n as u32 {
+                    let row_byte = self.memory[index + row_offset as usize];
                     for column_offset in 0..8 {
                         let bit_shift_amount = 7 - column_offset;
                         let and_val = 0b1000_0000 >> column_offset;
                         let pixel_val = ((row_byte & and_val) >> bit_shift_amount) == 1;
-                        self.vram[y_location as usize + row_offset]
-                            [x_location as usize + column_offset]
-                            .set(pixel_val);
+
+                        let y_wrapped = ((y_location as u32 + row_offset)
+                            % DEFAULT_CHIP8_PIXEL_HEIGHT)
+                            as usize;
+                        let x_wrapped = ((x_location as u32 + column_offset)
+                            % DEFAULT_CHIP8_PIXEL_WIDTH)
+                            as usize;
+                        if pixel_val && self.vram[y_wrapped][x_wrapped].on {
+                            self.registers[0x0F] = 1;
+                            self.vram[y_wrapped][x_wrapped].turn_off();
+                        } else if pixel_val && !self.vram[y_wrapped][x_wrapped].on {
+                            self.vram[y_wrapped][x_wrapped].set(pixel_val);
+                        }
                     }
                 }
 
@@ -343,7 +358,6 @@ impl Chip8 {
                 0x001E => {
                     //todo!("FX1E: Adds Vx to I. VF is not affected. I = I + Vx");
                     self.index_register = self.index_register + self.registers[x_index] as u16;
-                    increment_program_counter = false;
                 }
                 0x0029 => {
                     //todo!("FX29: sets I to the location of the sprite for the character in Vx. characters 0-F in hex are represented by a 4x5 font. I = sprite_addr[Vx]");
@@ -364,19 +378,19 @@ impl Chip8 {
                 }
                 0x0055 => {
                     //todo!("FX55: stores from V0 to Vx (including Vx) in memory, starting at address I. the offset from I is increased by 1 for each value written, but I itself is left unmodified. reg_dum(Vx, &I)");
-                    let program_counter = self.program_counter as usize;
+                    let i = self.index_register as usize;
                     self.registers
                         .iter()
                         .take(x_index + 1) //+1 bc zero index
                         .enumerate()
                         .for_each(|(index, register)| {
-                            self.memory[program_counter + index] = *register;
+                            self.memory[i + index] = *register;
                         });
                 }
                 0x0065 => {
                     //todo!("FX65: Fills from V0 to Vx (including Vx) with values from memory, starting at address I. the offset from I is increased by 1 for each value read, but I remains umodified.");
-                    let ip = self.program_counter as usize;
-                    let mem_slice = &self.memory[ip..ip + x_index];
+                    let i = self.index_register as usize;
+                    let mem_slice = &self.memory[i..i + x_index + 1];
 
                     mem_slice.iter().enumerate().for_each(|(index, mem_val)| {
                         self.registers[index] = *mem_val;
