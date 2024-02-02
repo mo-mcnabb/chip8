@@ -1,24 +1,16 @@
+extern crate sdl2;
+mod audio;
 mod chip8;
-fn main() {
-    let x: u8 = 0b10101101;
-    let y: u8 = 0b01101100;
+mod display;
+mod emulator;
+mod keyboard;
+mod pixel;
+mod renderer;
+use crate::emulator::Emulator;
 
-    println!("{:#b}", x);
-    println!("{:#b}", y);
+pub fn main() -> Result<(), String> {
+    let mut emulator = Emulator::build()?;
+    emulator.run(String::from("roms/particle_demo.ch8"))?;
 
-    let a = (x & 0b1000_0000) >> 7;
-    let b = (x & 0b0000_0001);
-
-    let c = (y & 0b1000_0000) >> 7;
-    let d = (y & 0b0000_0001);
-    println!("{:#b}", a);
-    println!("{:#b}", b);
-
-    println!("{:#b}", c);
-    println!("{:#b}", d);
-
-    let k: u8 = 0b1101_0110;
-    println!("{}", k << 1);
-    let usdufsdf = (k & 0b1000_0000) >> 7;
-    println!("{}", usdufsdf);
+    Ok(())
 }
