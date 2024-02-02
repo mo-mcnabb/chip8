@@ -1,8 +1,5 @@
 extern crate sdl2;
 
-const DEFAULT_CHIP8_PIXEL_HEIGHT: u32 = 64;
-const DEFAULT_CHIP8_PIXEL_WIDTH: u32 = 32;
-
 #[derive(Debug)]
 pub struct Pixel {
     pub x: u32,
@@ -17,14 +14,6 @@ impl Pixel {
 
     pub fn set(&mut self, on: bool) {
         self.on = on;
-    }
-
-    pub fn flip(&mut self) {
-        self.on = !self.on;
-    }
-
-    pub fn turn_on(&mut self) {
-        self.on = true;
     }
 
     pub fn turn_off(&mut self) {

@@ -1,6 +1,5 @@
 extern crate sdl2;
 use crate::chip8::Chip8;
-use crate::pixel::Pixel;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::WindowCanvas;
@@ -13,22 +12,11 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(window: Window) -> Result<Renderer, String> {
         let canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-        let (height, width) = canvas.window().size();
         Ok(Renderer { canvas })
     }
 
-    fn flip_bit(&mut self, pixel: &mut Pixel, scale: u32) {
-        let color = if pixel.on { Color::WHITE } else { Color::BLACK };
-
-        self.canvas.set_draw_color(color);
-        pixel.on = !pixel.on;
-
-        self.canvas.fill_rect(Rect::new(
-            (pixel.x * scale) as i32,
-            (pixel.y * scale) as i32,
-            scale,
-            scale,
-        ));
+    pub fn get_size(&self) -> Result<(u32, u32), String> {
+        self.canvas.output_size()
     }
 
     pub fn draw(&mut self, chip8: &mut Chip8) {
